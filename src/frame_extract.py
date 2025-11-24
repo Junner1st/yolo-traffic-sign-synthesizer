@@ -22,9 +22,10 @@ def extract_frames(video_path, output_dir, interval=0.5):
         print("Error: Could not get FPS from video.")
         return
     
+    video_name = os.path.splitext(os.path.basename(video_path))[0]
+    
     frame_interval = int(fps * interval)
     count = 0
-    frame_count = 0
     
     while cap.isOpened():
         ret, frame = cap.read()
@@ -32,14 +33,15 @@ def extract_frames(video_path, output_dir, interval=0.5):
             break
         
         if count % frame_interval == 0:
-            frame_filename = os.path.join(output_dir, f"frame_{frame_count:04d}.jpg")
+            sec = count // int(fps)
+            frame_in_sec = count % int(fps)
+            frame_filename = os.path.join(output_dir, f"{video_name}_{sec}s_frame_{frame_in_sec}.jpg")
             cv2.imwrite(frame_filename, frame)
-            frame_count += 1
         
         count += 1
     
     cap.release()
-    print(f"Extracted {frame_count} frames to {output_dir}.")
+    print(f"Frames extracted to {output_dir}.")
 
 if __name__ == "__main__":
     output_dir = "../data/not_synthesized/"
