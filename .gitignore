@@ -1,3 +1,9 @@
+# exp
+data/*
+*.jpg
+*.png
+*.pth
+
 # Python
 __pycache__/
 *.py[cod]
