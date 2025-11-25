@@ -1,0 +1,3 @@
+[submodule "src/model/BiSeNet"]
+	path = src/model/BiSeNet
+	url = https://github.com/CoinCheung/BiSeNet
