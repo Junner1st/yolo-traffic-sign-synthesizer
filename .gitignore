@@ -3,6 +3,7 @@ data/*
 *.jpg
 *.png
 *.pth
+*.pt
 
 # Python
 __pycache__/
