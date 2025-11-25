@@ -13,7 +13,6 @@ def detect_horizon(gray, smooth=31):
     horizon_row = np.argmax(row_scores)
     return horizon_row
 
-
 def resize_preserve_horizon(img, scale=0.7, contrast_boost=1.25):
     """
     Scale proportionally + maintain horizon proportional position + enhance contrast near vanishing point.
