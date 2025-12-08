@@ -4,3 +4,8 @@
 ```
 conda env create -f environment.yml
 ```
+
+## Run
+```
+python main.py
+```
