@@ -58,6 +58,13 @@ def mask_to_color(parsing, palette=pal):
     parsing: class mask (H, W)
     palette: color lookup table (num_classes, 3)
     """
+    palette = np.asarray(palette)
+    max_label = int(np.max(parsing))
+    if max_label >= palette.shape[0]:
+        pad_rows = max_label - palette.shape[0] + 1
+        pad = np.tile(np.array([[0, 0, 0]], dtype=palette.dtype), (pad_rows, 1))
+        palette = np.vstack([palette, pad])
+
     color_map = palette[parsing]
     return color_map.astype(np.uint8)
 
