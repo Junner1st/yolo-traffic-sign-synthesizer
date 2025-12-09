@@ -4,6 +4,7 @@ data/*
 *.png
 *.pth
 *.pt
+runs/*
 
 # Python
 __pycache__/
