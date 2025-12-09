@@ -4,13 +4,7 @@ from pathlib import Path
 
 import cv2
 
-from process import (
-    load_bisenet_model,
-    load_midas_model,
-    compute_depth_map,
-    normalize_depth_map,
-    synthesize,
-)
+from process import load_bisenet_model, load_midas_model, compute_depth_map, normalize_depth_map, synthesize
 
 
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff"}
