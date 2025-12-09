@@ -45,6 +45,9 @@ def extract_frames(video_path, output_dir, interval=0.5):
 
 if __name__ == "__main__":
     output_dir = "../data/not_synthesized/"
-    video_path = "../data/videos/McL8WnjMvxM.mp4"
-    
-    extract_frames(video_path, output_dir, interval=0.3)
+    video_dir = "../data/videos/"
+    for file in os.listdir(video_dir):
+        if file.endswith('.mp4'):
+            video_path = os.path.join(video_dir, file)
+            extract_frames(video_path, output_dir, interval=0.3)
+
