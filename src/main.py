@@ -11,7 +11,15 @@ IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff"}
 
 
 def list_image_paths(root: Path):
-    return sorted(p for p in root.rglob("*") if p.suffix.lower() in IMAGE_EXTS)
+    ignore_token = ".ipynb_checkpoints"
+    paths = []
+    for path in root.rglob("*"):
+        if path.suffix.lower() not in IMAGE_EXTS:
+            continue
+        if ignore_token in path.parts:
+            continue
+        paths.append(path)
+    return sorted(paths)
 
 
 def load_sign_assets(sign_paths, signs_root):
