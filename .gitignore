@@ -3,8 +3,10 @@ data/*
 *.jpg
 *.png
 *.pth
-*.pt
-runs/*
+*.pt                
+runs/
+src/runs/
+**/fonts/**
 
 # Python
 __pycache__/
