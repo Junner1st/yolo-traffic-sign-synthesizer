@@ -9,12 +9,13 @@ from typing import List, Sequence, Tuple
 import subprocess
 
 import cv2
+import numpy as np
 from ultralytics import YOLO
 
 BASE_DIR = Path(__file__).resolve().parent
 VIDEO_PATH = (BASE_DIR / "../data/videos/sample-day-1.mp4").resolve()
 MODEL_PATH = (BASE_DIR / "../src/runs/detect/train/weights/best.pt").resolve()
-OUTPUT_PATH = (BASE_DIR / "../data/recognized/sample_recognized.mp4").resolve()
+OUTPUT_PATH = (BASE_DIR / "../data/recognized/sample_recognized_tracked.mp4").resolve()
 SAVE_VIDEO = True
 MAX_FRAMES = None
 CHUNK_SIZE = 32
@@ -37,6 +38,75 @@ class RecognitionStats:
     @property
     def avg_time_per_frame(self) -> float:
         return 0.0 if self.frame_count == 0 else self.detection_time / self.frame_count
+
+
+class TemporalTracker:
+    def __init__(self, iou_thresh: float = 0.4, min_frames: int = 1, max_missing: int = 5):
+        self.tracks: List[dict] = []
+        self.next_id = 0
+        self.iou_thresh = iou_thresh
+        self.min_frames = min_frames
+        self.max_missing = max_missing
+
+    def _iou(self, a, b) -> float:
+        ax1, ay1, ax2, ay2 = a
+        bx1, by1, bx2, by2 = b
+        ix1, iy1 = max(ax1, bx1), max(ay1, by1)
+        ix2, iy2 = min(ax2, bx2), min(ay2, by2)
+        iw, ih = max(0.0, ix2 - ix1), max(0.0, iy2 - iy1)
+        inter = iw * ih
+        if inter <= 0:
+            return 0.0
+        area_a = max(1e-6, (ax2 - ax1) * (ay2 - ay1))
+        area_b = max(1e-6, (bx2 - bx1) * (by2 - by1))
+        return inter / (area_a + area_b - inter)
+
+    def update(self, boxes, scores, classes):
+        updated_tracks: List[dict] = []
+        used = set()
+
+        for track in self.tracks:
+            best_iou = 0.0
+            best_idx = -1
+            for i, box in enumerate(boxes):
+                if i in used:
+                    continue
+                if track["cls"] != classes[i]:
+                    continue
+                iou = self._iou(track["bbox"], box)
+                if iou > best_iou:
+                    best_iou = iou
+                    best_idx = i
+            if best_iou >= self.iou_thresh and best_idx >= 0:
+                i = best_idx
+                used.add(i)
+                track["bbox"] = boxes[i]
+                track["score"] = 0.7 * track["score"] + 0.3 * scores[i]
+                track["frames"] += 1
+                track["missing"] = 0
+                updated_tracks.append(track)
+            else:
+                track["missing"] += 1
+                if track["missing"] <= self.max_missing:
+                    updated_tracks.append(track)
+
+        for i, box in enumerate(boxes):
+            if i in used:
+                continue
+            track = {
+                "id": self.next_id,
+                "bbox": box,
+                "score": float(scores[i]),
+                "cls": int(classes[i]),
+                "frames": 1,
+                "missing": 0,
+            }
+            self.next_id += 1
+            updated_tracks.append(track)
+
+        self.tracks = updated_tracks
+        visible = [t for t in self.tracks if t["frames"] >= self.min_frames and t["missing"] == 0]
+        return visible
 
 
 def ensure_paths(video_path: Path, model_path: Path) -> None:
@@ -77,24 +147,31 @@ def _predict_frame(
         model_queue.put(model)
 
 
-def annotate_frame(frame, prediction, names: Sequence[str]):
-    if prediction is None or prediction.boxes is None:
-        return frame
+def annotate_frame(frame, prediction, names: Sequence[str], tracks: Sequence[dict] | None = None):
     annotated = frame.copy()
-    boxes = prediction.boxes
-    if boxes is None or len(boxes) == 0:
+
+    if tracks:
+        for track in tracks:
+            x1, y1, x2, y2 = map(int, track["bbox"])
+            label = names[track["cls"]] if 0 <= track["cls"] < len(names) else str(track["cls"])
+            text = f"{label}#{track['id']} {track['score']:.2f}"
+            cv2.rectangle(annotated, (x1, y1), (x2, y2), (0, 200, 0), 2)
+            cv2.putText(annotated, text, (x1, max(0, y1 - 6)), FONT, 0.5, (0, 0, 0), 2)
+            cv2.putText(annotated, text, (x1, max(0, y1 - 6)), FONT, 0.5, (255, 255, 255), 1)
         return annotated
-    xyxy = boxes.xyxy.cpu().numpy()
-    confs = boxes.conf.cpu().numpy()
-    clss = boxes.cls.cpu().numpy().astype(int)
-    for bbox, score, cls_idx in zip(xyxy, confs, clss):
-        x1, y1, x2, y2 = bbox.astype(int)
-        label = names[cls_idx] if 0 <= cls_idx < len(names) else str(cls_idx)
-        cv2.rectangle(annotated, (x1, y1), (x2, y2), (0, 200, 255), 2)
-        text = f"{label} {score:.2f}"
-        cv2.putText(annotated, text, (x1, max(0, y1 - 5)), FONT, 0.5, (0, 0, 0), 2)
-        cv2.putText(annotated, text, (x1, max(0, y1 - 5)), FONT, 0.5, (255, 255, 255), 1)
     return annotated
+
+
+def _extract_prediction_arrays(prediction):
+    if prediction is None or prediction.boxes is None or len(prediction.boxes) == 0:
+        return [], [], []
+    boxes = prediction.boxes.xyxy.cpu().numpy()
+    scores = prediction.boxes.conf.cpu().numpy()
+    classes = prediction.boxes.cls.cpu().numpy().astype(int)
+    box_list = [tuple(map(float, bbox)) for bbox in boxes]
+    score_list = [float(s) for s in scores]
+    class_list = [int(c) for c in classes]
+    return box_list, score_list, class_list
 
 
 def run_inference(
@@ -143,6 +220,7 @@ def process_video(
         ffmpeg_proc = subprocess.Popen(cmd_str, stdin=subprocess.PIPE, shell=True)
 
     model_queue, names = build_model_pool(model_path, workers)
+    tracker = TemporalTracker()
 
     total_frames = 0
     total_detections = 0
@@ -159,12 +237,16 @@ def process_video(
             if max_frames is not None and total_frames >= max_frames:
                 break
             if len(chunk) >= chunk_size:
-                elapsed, predictions = _process_chunk(chunk, model_queue, ffmpeg_proc, names, conf, iou, workers)
+                elapsed, predictions = _process_chunk(
+                    chunk, model_queue, ffmpeg_proc, names, conf, iou, workers, tracker
+                )
                 total_detection_time += elapsed
                 total_detections += _count_detections(predictions)
                 chunk = []
         if chunk:
-            elapsed, predictions = _process_chunk(chunk, model_queue, ffmpeg_proc, names, conf, iou, workers)
+            elapsed, predictions = _process_chunk(
+                chunk, model_queue, ffmpeg_proc, names, conf, iou, workers, tracker
+            )
             total_detection_time += elapsed
             total_detections += _count_detections(predictions)
     finally:
@@ -184,13 +266,16 @@ def _process_chunk(
     conf: float,
     iou: float,
     workers: int,
+    tracker: TemporalTracker,
 ) -> Tuple[float, List]:
     start = time.perf_counter()
     predictions = run_inference(frames, model_queue, workers, conf, iou)
     elapsed = time.perf_counter() - start
-    if ffmpeg_proc is not None:
-        for frame, prediction in zip(frames, predictions):
-            annotated = annotate_frame(frame, prediction, names)
+    for frame, prediction in zip(frames, predictions):
+        boxes, scores, classes = _extract_prediction_arrays(prediction)
+        tracks = tracker.update(boxes, scores, classes)
+        if ffmpeg_proc is not None:
+            annotated = annotate_frame(frame, prediction, names, tracks)
             ffmpeg_proc.stdin.write(annotated.tobytes())
     return elapsed, predictions
 
