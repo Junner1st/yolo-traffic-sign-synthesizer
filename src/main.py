@@ -1,5 +1,6 @@
 import json
 import random
+from collections import Counter
 from pathlib import Path
 
 import cv2
@@ -8,6 +9,9 @@ from process import load_bisenet_model, load_midas_model, compute_depth_map, nor
 
 
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff"}
+COMPOSITES_PER_BACKGROUND = 4
+MIN_SIGNS_PER_IMAGE = 1
+MAX_SIGNS_PER_IMAGE = 4
 
 
 def list_image_paths(root: Path):
@@ -38,6 +42,27 @@ def load_sign_assets(sign_paths, signs_root):
     return assets
 
 
+def build_category_weights(sign_assets):
+    counts = Counter(asset["category"] for asset in sign_assets)
+    weights = {}
+    for category, count in counts.items():
+        weights[category] = 1.0 / max(count, 1)
+    return weights
+
+
+def sample_sign_assets(sign_assets, category_weights, n_objects):
+    weighted_assets = [category_weights.get(asset["category"], 1.0) for asset in sign_assets]
+    chosen = random.choices(sign_assets, weights=weighted_assets, k=n_objects)
+    return [
+        {
+            "image": item["image"].copy(),
+            "category": item["category"],
+            "source": item["source"],
+        }
+        for item in chosen
+    ]
+
+
 def main():
     base_dir = Path(__file__).resolve().parent
     bg_dir = (base_dir / "../data/not_synthesized").resolve()
@@ -56,6 +81,7 @@ def main():
     sign_assets = load_sign_assets(sign_paths, signs_dir)
     if not sign_assets:
         raise RuntimeError(f"No valid sign images loaded from {signs_dir}")
+    category_weights = build_category_weights(sign_assets)
 
     bisenet_model = load_bisenet_model()
     midas_model, midas_transform, midas_device = load_midas_model()
@@ -70,23 +96,27 @@ def main():
         depth_map = compute_depth_map(bg, midas_model, midas_transform, midas_device)
         depth_norm = normalize_depth_map(depth_map)
 
-        num_signs = random.randint(2, 5)
-        composite, placements = synthesize(bg.copy(), sign_assets, bisenet_model, depth_norm, n_objects=num_signs)
+        for variant_idx in range(COMPOSITES_PER_BACKGROUND):
+            num_signs = random.randint(MIN_SIGNS_PER_IMAGE, MAX_SIGNS_PER_IMAGE)
+            chosen_assets = sample_sign_assets(sign_assets, category_weights, num_signs)
+            composite, placements = synthesize(
+                bg.copy(), chosen_assets, bisenet_model, depth_norm, n_objects=num_signs
+            )
 
-        out_name = f"{bg_path.stem}_synthetic.png"
-        out_path = output_dir / out_name
-        cv2.imwrite(str(out_path), composite)
+            out_name = f"{bg_path.stem}_synthetic_v{variant_idx:02d}.png"
+            out_path = output_dir / out_name
+            cv2.imwrite(str(out_path), composite)
 
-        annotation = {
-            "background": str(bg_path.relative_to(bg_dir)),
-            "output": out_name,
-            "signs": placements,
-        }
-        ann_path = out_path.with_suffix(".json")
-        with ann_path.open("w", encoding="utf-8") as ann_file:
-            json.dump(annotation, ann_file, indent=2, ensure_ascii=False)
+            annotation = {
+                "background": str(bg_path.relative_to(bg_dir)),
+                "output": out_name,
+                "signs": placements,
+            }
+            ann_path = out_path.with_suffix(".json")
+            with ann_path.open("w", encoding="utf-8") as ann_file:
+                json.dump(annotation, ann_file, indent=2, ensure_ascii=False)
 
-        num_composites += 1
+            num_composites += 1
 
     print(f"Saved {num_composites} composites to {output_dir}")
     print("Wrote per-image annotations beside each composite")
