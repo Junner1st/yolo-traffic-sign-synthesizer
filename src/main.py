@@ -4,6 +4,7 @@ from collections import Counter
 from pathlib import Path
 
 import cv2
+from tqdm import tqdm
 
 from process import load_bisenet_model, load_midas_model, compute_depth_map, normalize_depth_map, synthesize
 
@@ -87,36 +88,42 @@ def main():
     midas_model, midas_transform, midas_device = load_midas_model()
 
     num_composites = 0
-    for bg_path in background_paths:
-        bg = cv2.imread(str(bg_path))
-        if bg is None:
-            print(f"[warn] Skip background {bg_path} (failed to load)")
-            continue
+    total_composites = len(background_paths) * COMPOSITES_PER_BACKGROUND
+    with tqdm(total=total_composites, desc="Synthesizing", unit="image", dynamic_ncols=True) as progress_bar:
+        for bg_path in background_paths:
+            progress_bar.set_postfix_str(bg_path.name)
 
-        depth_map = compute_depth_map(bg, midas_model, midas_transform, midas_device)
-        depth_norm = normalize_depth_map(depth_map)
+            bg = cv2.imread(str(bg_path))
+            if bg is None:
+                print(f"[warn] Skip background {bg_path} (failed to load)")
+                progress_bar.update(COMPOSITES_PER_BACKGROUND)
+                continue
 
-        for variant_idx in range(COMPOSITES_PER_BACKGROUND):
-            num_signs = random.randint(MIN_SIGNS_PER_IMAGE, MAX_SIGNS_PER_IMAGE)
-            chosen_assets = sample_sign_assets(sign_assets, category_weights, num_signs)
-            composite, placements = synthesize(
-                bg.copy(), chosen_assets, bisenet_model, depth_norm, n_objects=num_signs
-            )
+            depth_map = compute_depth_map(bg, midas_model, midas_transform, midas_device)
+            depth_norm = normalize_depth_map(depth_map)
 
-            out_name = f"{bg_path.stem}_synthetic_v{variant_idx:02d}.png"
-            out_path = output_dir / out_name
-            cv2.imwrite(str(out_path), composite)
+            for variant_idx in range(COMPOSITES_PER_BACKGROUND):
+                num_signs = random.randint(MIN_SIGNS_PER_IMAGE, MAX_SIGNS_PER_IMAGE)
+                chosen_assets = sample_sign_assets(sign_assets, category_weights, num_signs)
+                composite, placements = synthesize(
+                    bg.copy(), chosen_assets, bisenet_model, depth_norm, n_objects=num_signs
+                )
 
-            annotation = {
-                "background": str(bg_path.relative_to(bg_dir)),
-                "output": out_name,
-                "signs": placements,
-            }
-            ann_path = out_path.with_suffix(".json")
-            with ann_path.open("w", encoding="utf-8") as ann_file:
-                json.dump(annotation, ann_file, indent=2, ensure_ascii=False)
+                out_name = f"{bg_path.stem}_synthetic_v{variant_idx:02d}.png"
+                out_path = output_dir / out_name
+                cv2.imwrite(str(out_path), composite)
 
-            num_composites += 1
+                annotation = {
+                    "background": str(bg_path.relative_to(bg_dir)),
+                    "output": out_name,
+                    "signs": placements,
+                }
+                ann_path = out_path.with_suffix(".json")
+                with ann_path.open("w", encoding="utf-8") as ann_file:
+                    json.dump(annotation, ann_file, indent=2, ensure_ascii=False)
+
+                num_composites += 1
+                progress_bar.update(1)
 
     print(f"Saved {num_composites} composites to {output_dir}")
     print("Wrote per-image annotations beside each composite")
