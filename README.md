@@ -38,7 +38,7 @@ python main.py
 ### 3. Train Yolo
 ```sh
 cd src
-python main.py
+python train_yolo.py
 ```
 
 ### 4. Recognition Sign For a Video
