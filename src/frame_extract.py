@@ -9,9 +9,6 @@ def extract_frames(video_path, output_dir, interval=0.5):
     :param output_dir: Directory to save the extracted frames
     :param interval: Time interval in seconds between frames
     """
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
-    
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
         print("Error: Could not open video.")
@@ -23,6 +20,9 @@ def extract_frames(video_path, output_dir, interval=0.5):
         return
     
     video_name = os.path.splitext(os.path.basename(video_path))[0]
+    video_output_dir = os.path.join(output_dir, video_name)
+    if not os.path.exists(video_output_dir):
+        os.makedirs(video_output_dir)
     
     frame_interval = int(fps * interval)
     count = 0
@@ -35,7 +35,7 @@ def extract_frames(video_path, output_dir, interval=0.5):
         if count % frame_interval == 0:
             sec = count // int(fps)
             frame_in_sec = count % int(fps)
-            frame_filename = os.path.join(output_dir, f"{video_name}_{sec}s_frame_{frame_in_sec}.jpg")
+            frame_filename = os.path.join(video_output_dir, f"{video_name}_{sec}s_frame_{frame_in_sec}.jpg")
             cv2.imwrite(frame_filename, frame)
         
         count += 1
@@ -46,8 +46,9 @@ def extract_frames(video_path, output_dir, interval=0.5):
 if __name__ == "__main__":
     output_dir = "../data/not_synthesized/"
     video_dir = "../data/videos/"
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
     for file in os.listdir(video_dir):
         if file.endswith('.mp4'):
             video_path = os.path.join(video_dir, file)
             extract_frames(video_path, output_dir, interval=0.3)
-
