@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import random
 import shutil
+from collections import Counter, defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Sequence, Tuple
@@ -16,8 +17,8 @@ IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".bmp"}
 
 BASE_DIR = Path(__file__).resolve().parent
 SYNTH_DIR = (BASE_DIR / "../data/synthesized").resolve()
-DATASET_DIR = (BASE_DIR / "../data/yolo11_dataset").resolve()
-MODEL_NAME = "yolo11n.pt"
+DATASET_DIR = (BASE_DIR / "../data/yolo26_dataset").resolve()
+MODEL_NAME = "yolo26n.pt"
 EPOCHS = 100
 BATCH_SIZE = 64
 IMG_SIZE = 640
@@ -33,6 +34,7 @@ class Sample:
     image_path: Path
     ann_path: Path
     signs: List[dict]
+    group_id: str
 
 
 def configure_matplotlib_fonts() -> None:
@@ -57,7 +59,14 @@ def discover_samples(synth_dir: Path) -> List[Sample]:
         with ann_path.open("r", encoding="utf-8") as ann_file:
             ann = json.load(ann_file)
         signs = ann.get("signs", [])
-        samples.append(Sample(image_path=img_path, ann_path=ann_path, signs=signs))
+        background = ann.get("background", "")
+        background_path = Path(background)
+        if len(background_path.parts) > 1:
+            group_id = background_path.parts[0]
+        else:
+            flat_name = background_path.stem if background else img_path.stem
+            group_id = flat_name.split("_frame_")[0].rsplit("_", 1)[0]
+        samples.append(Sample(image_path=img_path, ann_path=ann_path, signs=signs, group_id=group_id))
     return samples
 
 
@@ -73,6 +82,16 @@ def build_class_map(samples: Sequence[Sample]) -> Dict[str, int]:
     return {name: idx for idx, name in enumerate(sorted(categories))}
 
 
+def _group_class_histogram(samples: Sequence[Sample]) -> Counter:
+    counts: Counter = Counter()
+    for sample in samples:
+        for sign in sample.signs:
+            label = sign.get("category")
+            if label:
+                counts[label] += 1
+    return counts
+
+
 def split_samples_three(
     samples: Sequence[Sample],
     train_ratio: float,
@@ -85,22 +104,44 @@ def split_samples_three(
         raise ValueError("val_ratio must be between 0 and 1")
     if train_ratio + val_ratio >= 1.0:
         raise ValueError("train_ratio + val_ratio must be less than 1")
-    shuffled = list(samples)
-    rng = random.Random(seed)
-    rng.shuffle(shuffled)
-    n = len(shuffled)
+    n = len(samples)
     if n < 3:
         raise RuntimeError("Need at least three annotated samples to perform train/val/test split.")
-    train_end = max(1, int(n * train_ratio))
-    val_end = train_end + max(1, int(n * val_ratio))
-    if val_end >= n:
-        val_end = n - 1
-    train_samples = shuffled[:train_end]
-    val_samples = shuffled[train_end:val_end]
-    test_samples = shuffled[val_end:]
-    if len(test_samples) == 0:
-        val_samples, last = val_samples[:-1], val_samples[-1:]
-        test_samples = list(last)
+
+    groups: Dict[str, List[Sample]] = defaultdict(list)
+    for sample in samples:
+        groups[sample.group_id].append(sample)
+
+    grouped_items = list(groups.items())
+    if len(grouped_items) < 3:
+        raise RuntimeError("Need synthesized samples from at least three source groups/videos for group-aware splitting.")
+
+    rng = random.Random(seed)
+    rng.shuffle(grouped_items)
+    grouped_items.sort(key=lambda item: len(item[1]), reverse=True)
+
+    target_train = n * train_ratio
+    target_val = n * val_ratio
+    splits: Dict[str, List[Sample]] = {"train": [], "val": [], "test": []}
+    split_order = ("train", "val", "test")
+
+    for idx, (_, group_samples) in enumerate(grouped_items):
+        if idx < len(split_order):
+            splits[split_order[idx]].extend(group_samples)
+            continue
+        train_gap = target_train - len(splits["train"])
+        val_gap = target_val - len(splits["val"])
+        if train_gap >= val_gap and train_gap > 0:
+            target_split = "train"
+        elif val_gap > 0:
+            target_split = "val"
+        else:
+            target_split = "test"
+        splits[target_split].extend(group_samples)
+
+    train_samples = splits["train"]
+    val_samples = splits["val"]
+    test_samples = splits["test"]
     return train_samples, val_samples, test_samples
 
 
@@ -186,6 +227,16 @@ def main() -> None:
         raise RuntimeError("Need at least three annotated samples to perform train/val/test split.")
     class_map = build_class_map(samples)
     train_samples, val_samples, test_samples = split_samples_three(samples, TRAIN_RATIO, VAL_RATIO, RANDOM_SEED)
+    for split_name, split_samples in (
+        ("train", train_samples),
+        ("val", val_samples),
+        ("test", test_samples),
+    ):
+        split_hist = _group_class_histogram(split_samples)
+        print(
+            f"{split_name}: images={len(split_samples)} "
+            f"boxes={sum(split_hist.values())} classes={len(split_hist)}"
+        )
     reset_dir(dataset_dir)
     export_split(train_samples, "train", dataset_dir, class_map)
     export_split(val_samples, "val", dataset_dir, class_map)
