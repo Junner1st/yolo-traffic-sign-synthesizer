@@ -1,5 +1,11 @@
 # Yolo Traffic Sign Synthesizer
 
+## Load submodule
+After cloning:
+```sh
+git submodule update --init --recursive
+```
+
 ## Build Environment
 ```sh
 conda env create -f environment.yml
