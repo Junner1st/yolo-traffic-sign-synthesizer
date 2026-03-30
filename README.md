@@ -23,25 +23,32 @@ conda env export | sed '$d' > environment.yml
 
 ## Run
 
-### 1. Frame Extract
+### 1. cutout sign
+
+```sh
+cd src
+python cutout_signs.py
+```
+
+### 2. Frame Extract
 ```sh
 cd src
 python frame_extract.py
 ```
 
-### 2. Synthesized Data
+### 3. Synthesized Data
 ```sh
 cd src
 python main.py
 ```
 
-### 3. Train Yolo
+### 4. Train Yolo
 ```sh
 cd src
 python train_yolo.py
 ```
 
-### 4. Recognition Sign For a Video
+### 5. Recognition Sign For a Video
 ```sh
 cd src
 python recognition.py

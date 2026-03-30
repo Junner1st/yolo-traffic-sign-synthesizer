@@ -19,7 +19,7 @@ OUTPUT_PATH = (BASE_DIR / "../data/recognized/sample_recognized_tracked.mp4").re
 SAVE_VIDEO = True
 MAX_FRAMES = None
 CHUNK_SIZE = 32
-WORKERS = 1
+WORKERS = 16
 CONFIDENCE = 0.25
 IOU = 0.5
 FONT = cv2.FONT_HERSHEY_SIMPLEX
@@ -41,7 +41,7 @@ class RecognitionStats:
 
 
 class TemporalTracker:
-    def __init__(self, iou_thresh: float = 0.4, min_frames: int = 1, max_missing: int = 5):
+    def __init__(self, iou_thresh: float = 0.4, min_frames: int = 2, max_missing: int = 5):
         self.tracks: List[dict] = []
         self.next_id = 0
         self.iou_thresh = iou_thresh

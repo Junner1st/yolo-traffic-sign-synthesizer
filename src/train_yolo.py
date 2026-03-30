@@ -19,14 +19,18 @@ BASE_DIR = Path(__file__).resolve().parent
 SYNTH_DIR = (BASE_DIR / "../data/synthesized").resolve()
 DATASET_DIR = (BASE_DIR / "../data/yolo26_dataset").resolve()
 MODEL_NAME = "yolo26n.pt"
-EPOCHS = 100
-BATCH_SIZE = 64
-IMG_SIZE = 640
+EPOCHS = 280
+BATCH_SIZE = 112
+IMG_SIZE = 720
 TRAIN_RATIO = 0.7
 VAL_RATIO = 0.15
 RANDOM_SEED = 42
+MIN_BOX_EDGE = 12
+MIN_BOX_AREA = 16 * 16
 
 FONT_PATH = (BASE_DIR / "../fonts/NotoSansCJKtc-Regular.otf").resolve()
+SRC_DETECT_DIR = (BASE_DIR / "runs/detect").resolve()
+DATA_RUNS_DIR = (BASE_DIR / "../data/runs").resolve()
 
 
 @dataclass
@@ -151,12 +155,21 @@ def reset_dir(path: Path) -> None:
     path.mkdir(parents=True, exist_ok=True)
 
 
+def is_valid_bbox(bbox: Sequence[float]) -> bool:
+    if len(bbox) != 4:
+        return False
+    x1, y1, x2, y2 = bbox
+    width = max(float(x2) - float(x1), 0.0)
+    height = max(float(y2) - float(y1), 0.0)
+    return width >= MIN_BOX_EDGE and height >= MIN_BOX_EDGE and width * height >= MIN_BOX_AREA
+
+
 def write_label_file(label_path: Path, signs: Sequence[dict], class_map: Dict[str, int], width: int, height: int) -> None:
     lines: List[str] = []
     for sign in signs:
         label = sign.get("category")
         bbox = sign.get("bbox")
-        if label not in class_map or not bbox or len(bbox) != 4:
+        if label not in class_map or not bbox or not is_valid_bbox(bbox):
             continue
         x1, y1, x2, y2 = bbox
         x1, x2 = sorted([float(x1), float(x2)])
@@ -210,11 +223,49 @@ def write_dataset_yaml(dataset_dir: Path, class_map: Dict[str, int]) -> Path:
     return yaml_path
 
 
-def train_and_evaluate(data_yaml: Path, model_name: str, epochs: int, batch: int, imgsz: int) -> None:
+def prepare_src_detect_dir(src_detect_dir: Path) -> None:
+    reset_dir(src_detect_dir)
+
+
+def next_detect_archive_dir(data_runs_dir: Path) -> Path:
+    max_idx = 0
+    for path in data_runs_dir.iterdir():
+        if not path.is_dir():
+            continue
+        name = path.name
+        if name == "detect":
+            max_idx = max(max_idx, 1)
+            continue
+        if not name.startswith("detect"):
+            continue
+        suffix = name[len("detect") :]
+        if suffix.isdigit():
+            max_idx = max(max_idx, int(suffix))
+    next_idx = max_idx + 1
+    next_name = "detect" if next_idx == 1 else f"detect{next_idx}"
+    return data_runs_dir / next_name
+
+
+def archive_detect_run(src_detect_dir: Path, data_runs_dir: Path) -> Path:
+    data_runs_dir.mkdir(parents=True, exist_ok=True)
+    target_dir = next_detect_archive_dir(data_runs_dir)
+    shutil.copytree(src_detect_dir, target_dir)
+    return target_dir
+
+
+def train_and_evaluate(
+    data_yaml: Path,
+    model_name: str,
+    epochs: int,
+    batch: int,
+    imgsz: int,
+    src_detect_dir: Path,
+) -> None:
     model = YOLO(model_name)
-    model.train(data=str(data_yaml), epochs=epochs, batch=batch, imgsz=imgsz)
-    model.val(data=str(data_yaml), split="val", name="val")
-    model.val(data=str(data_yaml), split="test", name="test")
+    project = str(src_detect_dir)
+    model.train(data=str(data_yaml), epochs=epochs, batch=batch, imgsz=imgsz, project=project, name="train", exist_ok=True)
+    model.val(data=str(data_yaml), split="val", project=project, name="val", exist_ok=True)
+    model.val(data=str(data_yaml), split="test", project=project, name="test", exist_ok=True)
 
 
 def main() -> None:
@@ -243,7 +294,10 @@ def main() -> None:
     export_split(test_samples, "test", dataset_dir, class_map)
     configure_matplotlib_fonts()
     data_yaml = write_dataset_yaml(dataset_dir, class_map)
-    train_and_evaluate(data_yaml, MODEL_NAME, EPOCHS, BATCH_SIZE, IMG_SIZE)
+    prepare_src_detect_dir(SRC_DETECT_DIR)
+    train_and_evaluate(data_yaml, MODEL_NAME, EPOCHS, BATCH_SIZE, IMG_SIZE, SRC_DETECT_DIR)
+    archive_dir = archive_detect_run(SRC_DETECT_DIR, DATA_RUNS_DIR)
+    print(f"Archived detect run to {archive_dir}")
 
 
 if __name__ == "__main__":
