@@ -6,31 +6,56 @@ import shutil
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 import cv2
 import matplotlib as mpl
+import config
 from matplotlib import font_manager
 from ultralytics import YOLO
 
-IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".bmp"}
+IMAGE_EXTS = config.YOLO_IMAGE_EXTS
+SYNTH_DIR = config.YOLO_SYNTH_DIR
+DATASET_DIR = config.YOLO_DATASET_DIR
+MODEL_NAME = config.YOLO_MODEL_NAME
+EPOCHS = config.YOLO_EPOCHS
+BATCH_SIZE = config.YOLO_BATCH_SIZE
+IMG_SIZE = config.YOLO_IMG_SIZE
+TRAIN_RATIO = config.YOLO_TRAIN_RATIO
+VAL_RATIO = config.YOLO_VAL_RATIO
+RANDOM_SEED = config.YOLO_RANDOM_SEED
+MIN_BOX_EDGE = config.YOLO_MIN_BOX_EDGE
+MIN_BOX_AREA = config.YOLO_MIN_BOX_AREA
 
-BASE_DIR = Path(__file__).resolve().parent
-SYNTH_DIR = (BASE_DIR / "../data/synthesized").resolve()
-DATASET_DIR = (BASE_DIR / "../data/yolo26_dataset").resolve()
-MODEL_NAME = "yolo26n.pt"
-EPOCHS = 280
-BATCH_SIZE = 112
-IMG_SIZE = 720
-TRAIN_RATIO = 0.7
-VAL_RATIO = 0.15
-RANDOM_SEED = 42
-MIN_BOX_EDGE = 12
-MIN_BOX_AREA = 16 * 16
+FONT_PATH = config.FONT_PATH
+SRC_DETECT_DIR = config.YOLO_SRC_DETECT_DIR
+DATA_RUNS_DIR = config.YOLO_DATA_RUNS_DIR
 
-FONT_PATH = (BASE_DIR / "../fonts/NotoSansCJKtc-Regular.otf").resolve()
-SRC_DETECT_DIR = (BASE_DIR / "runs/detect").resolve()
-DATA_RUNS_DIR = (BASE_DIR / "../data/runs").resolve()
+HARD_NEGATIVE_POOL_ENABLED = config.YOLO_HARD_NEGATIVE_POOL_ENABLED
+HARD_NEGATIVE_POOL_DIR = config.YOLO_HARD_NEGATIVE_POOL_DIR
+HARD_NEG_INCLUDE_UNLABELED_BACKGROUND = config.YOLO_HARD_NEG_INCLUDE_UNLABELED_BACKGROUND
+HARD_NEG_UNLABELED_BACKGROUND_DIR = config.YOLO_HARD_NEG_UNLABELED_BACKGROUND_DIR
+HARD_NEG_CONF_THRESHOLD = config.YOLO_HARD_NEG_CONF_THRESHOLD
+HARD_NEG_MAX_IOU_WITH_GT = config.YOLO_HARD_NEG_MAX_IOU_WITH_GT
+HARD_NEG_MIN_CROP_EDGE = config.YOLO_HARD_NEG_MIN_CROP_EDGE
+HARD_NEG_MIN_CROP_AREA = config.YOLO_HARD_NEG_MIN_CROP_AREA
+HARD_NEG_PREDICT_BATCH_SIZE = config.YOLO_HARD_NEG_PREDICT_BATCH_SIZE
+HARD_NEG_FALLBACK_TO_CPU_ON_OOM = config.YOLO_HARD_NEG_FALLBACK_TO_CPU_ON_OOM
+
+HARD_NEG_AVAILABLE = True
+HARD_NEG_IMPORT_ERROR = "MEOW"
+
+try:
+    from hard_negative_pool import (
+        HardNegativeConfig,
+        inject_pool_into_train_split,
+        mine_and_store_hard_negatives,
+        resolve_train_weights,
+    )
+
+    HARD_NEG_AVAILABLE = True
+except Exception as exc:  # pragma: no cover - fallback path for optional module
+    HARD_NEG_IMPORT_ERROR = str(exc)
 
 
 @dataclass
@@ -268,6 +293,26 @@ def train_and_evaluate(
     model.val(data=str(data_yaml), split="test", project=project, name="test", exist_ok=True)
 
 
+def build_hard_negative_config() -> Optional["HardNegativeConfig"]:
+    if not HARD_NEGATIVE_POOL_ENABLED:
+        return None
+    if not HARD_NEG_AVAILABLE:
+        print(f"[hard-negative] disabled (import failed): {HARD_NEG_IMPORT_ERROR}")
+        return None
+    return HardNegativeConfig(
+        pool_dir=HARD_NEGATIVE_POOL_DIR,
+        mine_split="train",
+        include_unlabeled_background=HARD_NEG_INCLUDE_UNLABELED_BACKGROUND,
+        unlabeled_background_dir=HARD_NEG_UNLABELED_BACKGROUND_DIR,
+        conf_threshold=HARD_NEG_CONF_THRESHOLD,
+        max_iou_with_gt=HARD_NEG_MAX_IOU_WITH_GT,
+        min_crop_edge=HARD_NEG_MIN_CROP_EDGE,
+        min_crop_area=HARD_NEG_MIN_CROP_AREA,
+        predict_batch_size=HARD_NEG_PREDICT_BATCH_SIZE,
+        fallback_to_cpu_on_oom=HARD_NEG_FALLBACK_TO_CPU_ON_OOM,
+    )
+
+
 def main() -> None:
     synth_dir = SYNTH_DIR
     dataset_dir = DATASET_DIR
@@ -292,10 +337,27 @@ def main() -> None:
     export_split(train_samples, "train", dataset_dir, class_map)
     export_split(val_samples, "val", dataset_dir, class_map)
     export_split(test_samples, "test", dataset_dir, class_map)
+    hard_neg_config = build_hard_negative_config()
+    if hard_neg_config is not None:
+        reused_hard_negs = inject_pool_into_train_split(hard_neg_config.pool_dir, dataset_dir)
+        print(f"[hard-negative] reused pooled negatives: {reused_hard_negs}")
     configure_matplotlib_fonts()
     data_yaml = write_dataset_yaml(dataset_dir, class_map)
     prepare_src_detect_dir(SRC_DETECT_DIR)
     train_and_evaluate(data_yaml, MODEL_NAME, EPOCHS, BATCH_SIZE, IMG_SIZE, SRC_DETECT_DIR)
+    if hard_neg_config is not None:
+        detector_weights = resolve_train_weights(SRC_DETECT_DIR, run_name="train")
+        mined_hard_negs = mine_and_store_hard_negatives(
+            weights_path=detector_weights,
+            dataset_dir=dataset_dir,
+            class_map=class_map,
+            config=hard_neg_config,
+            imgsz=IMG_SIZE,
+        )
+        print(
+            "[hard-negative] newly mined negatives: "
+            f"{mined_hard_negs} (saved to {hard_neg_config.pool_dir})"
+        )
     archive_dir = archive_detect_run(SRC_DETECT_DIR, DATA_RUNS_DIR)
     print(f"Archived detect run to {archive_dir}")
 

@@ -5,21 +5,20 @@ from pathlib import Path
 import numpy as np
 import torch
 import torch.nn.functional as F
+import config
 from PIL import Image
 from tqdm import tqdm
 from transformers import AutoModelForImageSegmentation
 
-IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff"}
-
-BASE_DIR = Path(__file__).resolve().parent
-INPUT_DIR = (BASE_DIR / "../data/signs").resolve()
-OUTPUT_DIR = (BASE_DIR / "../data/signs_cutout").resolve()
-MODEL_ID = "ZhengPeng7/BiRefNet"
+IMAGE_EXTS = config.CUTOUT_IMAGE_EXTS
+INPUT_DIR = config.CUTOUT_INPUT_DIR
+OUTPUT_DIR = config.CUTOUT_OUTPUT_DIR
+MODEL_ID = config.CUTOUT_MODEL_ID
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-INFER_SIZE = 1024
-MASK_THRESHOLD = 0.5
-ALPHA_SOFT = False
-BBOX_PAD = 2
+INFER_SIZE = config.CUTOUT_INFER_SIZE
+MASK_THRESHOLD = config.CUTOUT_MASK_THRESHOLD
+ALPHA_SOFT = config.CUTOUT_ALPHA_SOFT
+BBOX_PAD = config.CUTOUT_BBOX_PAD
 
 
 def list_image_paths(root: Path) -> list[Path]:

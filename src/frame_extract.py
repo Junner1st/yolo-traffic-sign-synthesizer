@@ -1,5 +1,6 @@
 import cv2
 import os
+import config
 
 def extract_frames(video_path, output_dir, interval=0.5):
     """
@@ -44,11 +45,11 @@ def extract_frames(video_path, output_dir, interval=0.5):
     print(f"Frames extracted to {output_dir}.")
 
 if __name__ == "__main__":
-    output_dir = "../data/not_synthesized/"
-    video_dir = "../data/videos/"
+    output_dir = str(config.FRAME_EXTRACT_OUTPUT_DIR)
+    video_dir = str(config.FRAME_EXTRACT_VIDEO_DIR)
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
     for file in os.listdir(video_dir):
-        if file.endswith('.mp4'):
+        if file.endswith(config.FRAME_EXTRACT_VIDEO_SUFFIX):
             video_path = os.path.join(video_dir, file)
-            extract_frames(video_path, output_dir, interval=0.3)
+            extract_frames(video_path, output_dir, interval=config.FRAME_EXTRACT_INTERVAL_SECONDS)

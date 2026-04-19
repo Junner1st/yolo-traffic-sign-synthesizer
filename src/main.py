@@ -4,6 +4,7 @@ from collections import Counter
 from pathlib import Path
 
 import cv2
+import config
 from tqdm import tqdm
 
 from process import (
@@ -17,10 +18,10 @@ from process import (
 )
 
 
-IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff"}
-COMPOSITES_PER_BACKGROUND = 4
-MIN_SIGNS_PER_IMAGE = 1
-MAX_SIGNS_PER_IMAGE = 4
+IMAGE_EXTS = config.SYNTH_IMAGE_EXTS
+COMPOSITES_PER_BACKGROUND = config.SYNTH_COMPOSITES_PER_BACKGROUND
+MIN_SIGNS_PER_IMAGE = config.SYNTH_MIN_SIGNS_PER_IMAGE
+MAX_SIGNS_PER_IMAGE = config.SYNTH_MAX_SIGNS_PER_IMAGE
 
 
 def list_image_paths(root: Path):
@@ -76,10 +77,9 @@ def initialize_sign_tracks(sign_assets, variant_idx, n_objects):
 
 
 def main():
-    base_dir = Path(__file__).resolve().parent
-    bg_dir = (base_dir / "../data/not_synthesized").resolve()
-    signs_dir = (base_dir / "../data/signs_cutout").resolve()
-    output_dir = (base_dir / "../data/synthesized").resolve()
+    bg_dir = config.SYNTH_BACKGROUND_DIR
+    signs_dir = config.SYNTH_SIGNS_DIR
+    output_dir = config.SYNTH_OUTPUT_DIR
     output_dir.mkdir(parents=True, exist_ok=True)
 
     assert bg_dir.exists(), f"Background directory not found: {bg_dir}"

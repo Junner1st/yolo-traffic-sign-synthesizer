@@ -9,19 +9,19 @@ from typing import List, Sequence, Tuple
 import subprocess
 
 import cv2
+import config
 import numpy as np
 from ultralytics import YOLO
 
-BASE_DIR = Path(__file__).resolve().parent
-VIDEO_PATH = (BASE_DIR / "../data/videos/sample-day-1.mp4").resolve()
-MODEL_PATH = (BASE_DIR / "../src/runs/detect/train/weights/best.pt").resolve()
-OUTPUT_PATH = (BASE_DIR / "../data/recognized/sample_recognized_tracked.mp4").resolve()
-SAVE_VIDEO = True
-MAX_FRAMES = None
-CHUNK_SIZE = 32
-WORKERS = 16
-CONFIDENCE = 0.25
-IOU = 0.5
+VIDEO_PATH = config.RECOGNITION_VIDEO_PATH
+MODEL_PATH = config.RECOGNITION_MODEL_PATH
+OUTPUT_PATH = config.RECOGNITION_OUTPUT_PATH
+SAVE_VIDEO = config.RECOGNITION_SAVE_VIDEO
+MAX_FRAMES = config.RECOGNITION_MAX_FRAMES
+CHUNK_SIZE = config.RECOGNITION_CHUNK_SIZE
+WORKERS = config.RECOGNITION_WORKERS
+CONFIDENCE = config.RECOGNITION_CONFIDENCE
+IOU = config.RECOGNITION_IOU
 FONT = cv2.FONT_HERSHEY_SIMPLEX
 
 
