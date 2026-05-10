@@ -3,10 +3,14 @@ data/*
 *.jpg
 *.png
 *.pth
-*.pt                
+*.pt
+*.onnx
+*.rknn
 runs/
 src/runs/
 **/fonts/**
+best_rknn_model/
+*.zip
 
 # Python
 __pycache__/
@@ -76,5 +80,3 @@ __MACOSX/
 
 # Windows
 *.ini
-
-
